@@ -19,7 +19,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.4.4",
     "multer": "^2.0.2",
-    "nanoid": "^5.0.7"
+    "nanoid": "^5.0.7",
+    "pdfkit": "^0.17.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
