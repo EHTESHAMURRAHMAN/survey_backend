@@ -1,6 +1,8 @@
 
 import { Router } from "express";
 import Survey from "../models/Survey";
+import Question from "../models/Question";
+import Option from "../models/Option";
 
 const r = Router();
 
@@ -102,13 +104,32 @@ r.put("/:id", async (req, res, next) => {
 // Delete survey
 r.delete("/:id", async (req, res, next) => {
   try {
-    const s = await Survey.findByIdAndDelete(req.params.id);
-    if (!s) return res.status(404).json({ message: "Not found" });
+    const surveyId = req.params.id;
+
+    // 1. Survey exist check
+    const survey = await Survey.findById(surveyId);
+    if (!survey) return res.status(404).json({ message: "Not found" });
+
+    // 2. Find all questions of this survey
+    const questions = await Question.find({ surveyId }).select("_id");
+
+    const questionIds = questions.map(q => q._id);
+
+    // 3. Delete all options of those questions
+    await Option.deleteMany({ questionId: { $in: questionIds } });
+
+    // 4. Delete all questions
+    await Question.deleteMany({ surveyId });
+
+    // 5. Finally delete survey
+    await Survey.findByIdAndDelete(surveyId);
+
     res.json({ ok: true });
   } catch (e) {
     next(e);
   }
 });
+
 
 // Create  public URL token for a survey
 r.post("/:id/create-url", async (req, res, next) => {
