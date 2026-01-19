@@ -1,3 +1,4 @@
+
 import { Router } from "express";
 import mongoose from "mongoose";
 import Survey from "../models/Survey";
@@ -73,13 +74,13 @@ router.get("/surveys/:key", async (req, res, next) => {
         typeStr === "checkbox"
           ? "checkbox"
           : typeStr === "text"
-          ? "text"
-          : "radio";
+            ? "text"
+            : "radio";
 
       const question = {
         id: String(q._id),
         text: String(q.text ?? ""),
-          image: q.image, 
+        image: q.image,
         details: q.details,
         type,
         options: optionsByQ.get(String(q._id)) ?? [],
@@ -98,8 +99,8 @@ router.get("/surveys/:key", async (req, res, next) => {
       (company as any)?.logoUrls && Array.isArray((company as any)?.logoUrls)
         ? (company as any).logoUrls
         : (company as any)?.logoUrl
-        ? [(company as any).logoUrl]
-        : [];
+          ? [(company as any).logoUrl]
+          : [];
 
     res.json({
       companyName: String(company?.name ?? ""),
@@ -112,6 +113,53 @@ router.get("/surveys/:key", async (req, res, next) => {
     next(e);
   }
 });
+
+//helperfunctions
+type RiskT = "green" | "yellow" | "red" | undefined;
+
+/**
+ * Normalize checkbox rows:
+ * - answers[] length === risks[] length
+ * - missing risks → RED (unselected checkbox)
+ */
+const normalizeSectionsForCheckbox = (
+  sections: {
+    title: string;
+    rows: {
+      question: string;
+      answer?: string;
+      answers?: string[];
+      risk?: RiskT;
+      risks?: RiskT[];
+    }[];
+  }[]
+) => {
+  return sections.map((sec) => ({
+    ...sec,
+    rows: sec.rows.map((row) => {
+      // ✅ Only checkbox-style rows
+      if (Array.isArray(row.answers)) {
+        const answers = row.answers;
+        const risks: RiskT[] = Array.isArray(row.risks)
+          ? [...row.risks]
+          : [];
+
+        // 🔴 Fill missing risks with RED
+        while (risks.length < answers.length) {
+          risks.push("red");
+        }
+
+        return {
+          ...row,
+          answers,
+          risks,
+        };
+      }
+
+      return row;
+    }),
+  }));
+};
 
 /**
  * POST /api/public/surveys/:key/submit
@@ -145,8 +193,8 @@ router.post("/surveys/:key/submit", async (req, res, next) => {
       optionIds: Array.isArray(val)
         ? val.map((v) => String(v))
         : typeof val === "string" && val
-        ? [String(val)]
-        : [],
+          ? [String(val)]
+          : [],
     }));
 
     const questionIds = rawChoices.map((c) => c.questionId);
@@ -206,11 +254,16 @@ router.post("/report.pdf", async (req, res) => {
           question: string;
           answer?: string;
           answers?: string[];
-          risk?: "green" | "yellow" | "red";
-          risks?: ("green" | "yellow" | "red" | undefined)[];
+          risk?: RiskT;
+          risks?: RiskT[];
         }[];
       }[];
     };
+
+    // ✅ Normalize checkbox answers
+    const normalizedSections = normalizeSectionsForCheckbox(sections);
+
+
 
     const doc = new PDFDocument({
       size: "A4",
@@ -239,8 +292,8 @@ router.post("/report.pdf", async (req, res) => {
       const logoUrls = Array.isArray(companyLogo)
         ? companyLogo
         : companyLogo
-        ? [companyLogo]
-        : [];
+          ? [companyLogo]
+          : [];
 
       const logoWidth = 80;
       const logoHeight = 80;
@@ -350,50 +403,50 @@ router.post("/report.pdf", async (req, res) => {
       doc.y = y + 22;
     };
 
-    type RiskT = "green" | "yellow" | "red" | undefined;
+    // type RiskT = "green" | "yellow" | "red" | undefined;
 
     const estimateSegmentMinHeight = (
-  title: string,
-  firstRow?: {
-    question: string;
-    answer?: string;
-    answers?: string[];
-  }
-) => {
-  let h = 0;
+      title: string,
+      firstRow?: {
+        question: string;
+        answer?: string;
+        answers?: string[];
+      }
+    ) => {
+      let h = 0;
 
-  // Segment title height
-  h += doc.heightOfString(title, {
-    width: TOTAL_W,
-  }) + 8;
+      // Segment title height
+      h += doc.heightOfString(title, {
+        width: TOTAL_W,
+      }) + 8;
 
-  // Table header height
-  h += 22;
+      // Table header height
+      h += 22;
 
-  // At least one row height (estimate)
-  if (firstRow) {
-    const qH = doc.heightOfString(firstRow.question || "-", {
-      width: COL_Q - rowPad * 2,
-    });
+      // At least one row height (estimate)
+      if (firstRow) {
+        const qH = doc.heightOfString(firstRow.question || "-", {
+          width: COL_Q - rowPad * 2,
+        });
 
-    const a =
-      Array.isArray(firstRow.answers) && firstRow.answers.length
-        ? firstRow.answers[0]
-        : firstRow.answer ?? "-";
+        const a =
+          Array.isArray(firstRow.answers) && firstRow.answers.length
+            ? firstRow.answers[0]
+            : firstRow.answer ?? "-";
 
-    const aH = doc.heightOfString(a, {
-      width: COL_A - rowPad * 2,
-    });
+        const aH = doc.heightOfString(a, {
+          width: COL_A - rowPad * 2,
+        });
 
-    const rowH = Math.max(qH, aH, 16) + rowPad * 2;
-    h += rowH;
-  } else {
-    // fallback minimal row height
-    h += 28;
-  }
+        const rowH = Math.max(qH, aH, 16) + rowPad * 2;
+        h += rowH;
+      } else {
+        // fallback minimal row height
+        h += 28;
+      }
 
-  return h + 12; // buffer
-};
+      return h + 12; // buffer
+    };
 
 
     const drawRow = (row: {
@@ -410,12 +463,23 @@ router.post("/report.pdf", async (req, res) => {
           ? row.answers
           : [row.answer ?? "-"];
 
-      const risksArr: RiskT[] =
-        Array.isArray(row.risks) && row.risks.length
-          ? row.risks
-          : row.risk !== undefined
-          ? [row.risk]
-          : [];
+      const risksArr: RiskT[] = [];
+
+      if (Array.isArray(row.answers)) {
+        for (let i = 0; i < row.answers.length; i++) {
+          // if risk exists at index → selected
+          if (row.risks && row.risks[i]) {
+            risksArr.push(row.risks[i]);
+          } else {
+            // unselected → RED
+            risksArr.push("red");
+          }
+        }
+      } else {
+        risksArr.push(row.risk ?? "red");
+      }
+
+
 
       const hQ = doc.heightOfString(row.question || "-", {
         width: COL_Q - rowPad * 2,
@@ -456,7 +520,9 @@ router.post("/report.pdf", async (req, res) => {
 
         doc.text(a, x + COL_Q + rowPad, ay, { width: COL_A - rowPad * 2 });
 
-        const chosenRisk = risksArr[i] ?? risksArr[0];
+        // const chosenRisk = risksArr[i] ?? risksArr[0];
+        const chosenRisk: RiskT = risksArr[i] ?? risksArr[0] ?? "red";
+
         const col = riskColor(chosenRisk);
         const barW = 24,
           barH = 9;
@@ -500,42 +566,42 @@ router.post("/report.pdf", async (req, res) => {
     //   doc.moveDown(0.5);
     // });
 
-sections.forEach((sec, idx) => {
-  const title = sec.title || `Segment ${idx + 1}`;
+    sections.forEach((sec, idx) => {
+      const title = sec.title || `Segment ${idx + 1}`;
 
-  // 🔒 Ensure title + table start stay together
-  const minHeight = estimateSegmentMinHeight(
-    title,
-    sec.rows?.[0]
-  );
+      // 🔒 Ensure title + table start stay together
+      const minHeight = estimateSegmentMinHeight(
+        title,
+        sec.rows?.[0]
+      );
 
-  ensureSpace(minHeight);
+      ensureSpace(minHeight);
 
-  // ---- Segment title ----
-  doc.font("Helvetica-Bold").fontSize(11).fillColor("#111");
-  doc.text(title, page().m, doc.y, { align: "left" });
-  doc.moveDown(0.4);
+      // ---- Segment title ----
+      doc.font("Helvetica-Bold").fontSize(11).fillColor("#111");
+      doc.text(title, page().m, doc.y, { align: "left" });
+      doc.moveDown(0.4);
 
-  const tableTop = doc.y;
+      const tableTop = doc.y;
 
-  // ---- Table header ----
-  drawTableHeader();
+      // ---- Table header ----
+      drawTableHeader();
 
-  // ---- Rows ----
-  (sec.rows || []).forEach((r) => drawRow(r as any));
+      // ---- Rows ----
+      (sec.rows || []).forEach((r) => drawRow(r as any));
 
-  // ---- Outer table box ----
-  const tableBottom = doc.y;
-  const x = page().m;
-  const tableHeight = tableBottom - tableTop;
+      // ---- Outer table box ----
+      const tableBottom = doc.y;
+      const x = page().m;
+      const tableHeight = tableBottom - tableTop;
 
-  doc.save();
-  doc.lineWidth(1.5).strokeColor(BORDER);
-  doc.rect(x, tableTop, TOTAL_W, tableHeight).stroke();
-  doc.restore();
+      doc.save();
+      doc.lineWidth(1.5).strokeColor(BORDER);
+      doc.rect(x, tableTop, TOTAL_W, tableHeight).stroke();
+      doc.restore();
 
-  doc.moveDown(0.5);
-});
+      doc.moveDown(0.5);
+    });
 
 
     doc.end();
