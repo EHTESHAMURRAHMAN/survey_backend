@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 import mongoose from "mongoose";
 import Survey from "../models/Survey";
@@ -441,20 +440,21 @@ router.post("/report.pdf", async (req, res) => {
       question: string;
       answer?: string;
       answers?: string[];
-      allOptions?:string[];
+      allOptions?: string[];
       risk?: RiskT;
+      selected?: boolean[];
       risks?: RiskT[];
     }) => {
       const x = page().m;
 
-     const answersArr: string[] = Array.isArray(row.answers)
-  ? row.answers
-  : row.allOptions ?? (row.answer ? [row.answer] : []);
+      const answersArr: string[] = Array.isArray(row.answers)
+        ? row.answers
+        : row.allOptions ?? (row.answer ? [row.answer] : []);
 
 
-   const risksArr: RiskT[] = answersArr.map((_, i) => {
-  return row.risks?.[i] ?? row.risk ?? undefined;
-});
+      const risksArr: RiskT[] = answersArr.map((_, i) => {
+        return row.risks?.[i] ?? row.risk ?? undefined;
+      });
 
 
       if (Array.isArray(row.answers)) {
@@ -509,18 +509,16 @@ router.post("/report.pdf", async (req, res) => {
       for (let i = 0; i < answersArr.length; i++) {
         const a = answersArr[i] ?? "-";
         const h = ansHeights[i];
-        const isSelected =
-  Array.isArray(row.answers)
-    ? row.answers.includes(answersArr[i]) // checkbox
-    : row.answer === answersArr[i];       // radio
+        const isSelected = row.selected?.[i] === true;
 
-    if (isSelected) {
-  doc
-    .save()
-    .rect(x + COL_Q + 2, ay - 2, COL_A - 4, h + 4)
-    .fill("#e6f0ff")   // light blue highlight
-    .restore();
-}
+        if (isSelected) {
+          doc
+            .save()
+            .rect(x + COL_Q + 2, ay - 2, COL_A - 4, h + 4)
+            .fill("#8ab6f8")
+            .restore();
+        }
+
 
         doc.text(a, x + COL_Q + rowPad, ay, { width: COL_A - rowPad * 2 });
 
