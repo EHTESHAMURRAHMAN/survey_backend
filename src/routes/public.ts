@@ -66,8 +66,8 @@ router.get("/surveys/:key", async (req, res, next) => {
     const buckets = new Map<number, { title: string; questions: any[] }>();
     for (const q of qDocs as any[]) {
       const segNum = parseSegmentNumber(q);
-      const segTitle = String(q.segmentTitle ?? `Segment ${segNum}`);
-
+      // const segTitle = String(q.segmentTitle ?? `Segment ${segNum}`);
+      const segTitle = String(q.segmentTitle ?? "");
       const typeStr = String(q.type ?? "radio").toLowerCase();
       const type =
         typeStr === "checkbox"
@@ -569,9 +569,8 @@ router.post("/report.pdf", async (req, res) => {
     // });
 
     sections.forEach((sec, idx) => {
-      const title = sec.title || `Segment ${idx + 1}`;
-
-      // 🔒 Ensure title + table start stay together
+      // const title = sec.title || `Segment ${idx + 1}`;
+      const title = sec.title || "";
       const minHeight = estimateSegmentMinHeight(
         title,
         sec.rows?.[0]
