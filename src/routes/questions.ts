@@ -51,27 +51,53 @@ r.put(
   upload.single("image"),
   async (req, res, next) => {
     try {
+      const { id } = req.params;
+
+      // 1️⃣ Pehle existing question find karo
+      const existingQuestion = await Question.findById(id);
+      if (!existingQuestion)
+        return res.status(404).json({ message: "Not found" });
+
+      const oldSegmentTitle = existingQuestion.segmentTitle;
+
       const data: any = { ...req.body };
 
+      // 2️⃣ Agar image upload hua
       if (req.file) {
         data.image = `/uploads/questions/${req.file.filename}`;
       }
 
+      // 3️⃣ Agar segmentTitle change hua hai → updateMany karo
+      if (
+        data.segmentTitle &&
+        data.segmentTitle !== oldSegmentTitle
+      ) {
+        await Question.updateMany(
+          {
+            surveyId: existingQuestion.surveyId, // 🔥 important
+            segmentTitle: oldSegmentTitle,
+          },
+          {
+            $set: { segmentTitle: data.segmentTitle },
+          }
+        );
+      }
+
+      // 4️⃣ Ab current question update karo
       const updated = await Question.findByIdAndUpdate(
-        req.params.id,
+        id,
         data,
         { new: true }
       );
 
-      if (!updated)
-        return res.status(404).json({ message: "Not found" });
-
       res.json(updated);
+
     } catch (e) {
       next(e);
     }
   }
 );
+
 
 
 // Delete 

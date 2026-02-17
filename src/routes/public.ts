@@ -122,37 +122,24 @@ type RiskT = "green" | "yellow" | "red" | undefined;
  * - answers[] length === risks[] length
  * - missing risks → RED (unselected checkbox)
  */
-const normalizeSectionsForCheckbox = (
-  sections: {
-    title: string;
-    rows: {
-      question: string;
-      answer?: string;
-      answers?: string[];
-      risk?: RiskT;
-      risks?: RiskT[];
-    }[];
-  }[]
-) => {
+const normalizeSectionsForCheckbox = (sections: any[]) => {
   return sections.map((sec) => ({
     ...sec,
-    rows: sec.rows.map((row) => {
-      // ✅ Only checkbox-style rows
+    rows: sec.rows.map((row: any) => {
       if (Array.isArray(row.answers)) {
         const answers = row.answers;
-        const risks: RiskT[] = Array.isArray(row.risks)
+        const existingRisks: RiskT[] = Array.isArray(row.risks)
           ? [...row.risks]
           : [];
 
-        // 🔴 Fill missing risks with RED
-        while (risks.length < answers.length) {
-          risks.push("red");
-        }
+        const normalizedRisks: RiskT[] = answers.map((_, index) => {
+          return existingRisks[index] ?? undefined;
+        });
 
         return {
           ...row,
           answers,
-          risks,
+          risks: normalizedRisks,
         };
       }
 
@@ -160,6 +147,7 @@ const normalizeSectionsForCheckbox = (
     }),
   }));
 };
+
 
 /**
  * POST /api/public/surveys/:key/submit
@@ -453,17 +441,21 @@ router.post("/report.pdf", async (req, res) => {
       question: string;
       answer?: string;
       answers?: string[];
+      allOptions?:string[];
       risk?: RiskT;
       risks?: RiskT[];
     }) => {
       const x = page().m;
 
-      const answersArr: string[] =
-        Array.isArray(row.answers) && row.answers.length
-          ? row.answers
-          : [row.answer ?? "-"];
+     const answersArr: string[] = Array.isArray(row.answers)
+  ? row.answers
+  : row.allOptions ?? (row.answer ? [row.answer] : []);
 
-      const risksArr: RiskT[] = [];
+
+   const risksArr: RiskT[] = answersArr.map((_, i) => {
+  return row.risks?.[i] ?? row.risk ?? undefined;
+});
+
 
       if (Array.isArray(row.answers)) {
         for (let i = 0; i < row.answers.length; i++) {
@@ -517,6 +509,18 @@ router.post("/report.pdf", async (req, res) => {
       for (let i = 0; i < answersArr.length; i++) {
         const a = answersArr[i] ?? "-";
         const h = ansHeights[i];
+        const isSelected =
+  Array.isArray(row.answers)
+    ? row.answers.includes(answersArr[i]) // checkbox
+    : row.answer === answersArr[i];       // radio
+
+    if (isSelected) {
+  doc
+    .save()
+    .rect(x + COL_Q + 2, ay - 2, COL_A - 4, h + 4)
+    .fill("#e6f0ff")   // light blue highlight
+    .restore();
+}
 
         doc.text(a, x + COL_Q + rowPad, ay, { width: COL_A - rowPad * 2 });
 
