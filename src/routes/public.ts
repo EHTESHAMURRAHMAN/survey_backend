@@ -1,3 +1,4 @@
+
 import { Router } from "express";
 import mongoose from "mongoose";
 import Survey from "../models/Survey";
@@ -66,8 +67,8 @@ router.get("/surveys/:key", async (req, res, next) => {
     const buckets = new Map<number, { title: string; questions: any[] }>();
     for (const q of qDocs as any[]) {
       const segNum = parseSegmentNumber(q);
-      // const segTitle = String(q.segmentTitle ?? `Segment ${segNum}`);
-      const segTitle = String(q.segmentTitle ?? "");
+      const segTitle = String(q.segmentTitle ?? `Segment ${segNum}`);
+
       const typeStr = String(q.type ?? "radio").toLowerCase();
       const type =
         typeStr === "checkbox"
@@ -569,8 +570,11 @@ router.post("/report.pdf", async (req, res) => {
     // });
 
     sections.forEach((sec, idx) => {
-      // const title = sec.title || `Segment ${idx + 1}`;
-      const title = sec.title || "";
+      let title = sec.title || `Segment ${idx + 1}`;
+
+      // Remove "Segment X:" prefix if exists
+      title = title.replace(/^Segment\s*\d+\s*:\s*/i, "");
+      // 🔒 Ensure title + table start stay together
       const minHeight = estimateSegmentMinHeight(
         title,
         sec.rows?.[0]
