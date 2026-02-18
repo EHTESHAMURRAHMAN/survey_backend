@@ -436,7 +436,6 @@ router.post("/report.pdf", async (req, res) => {
       return h + 12; // buffer
     };
 
-
     const drawRow = (row: {
       question: string;
       answer?: string;
@@ -452,40 +451,21 @@ router.post("/report.pdf", async (req, res) => {
         ? row.answers
         : row.allOptions ?? (row.answer ? [row.answer] : []);
 
-
+      // Only RiskT values, no "neutral"
       const risksArr: RiskT[] = answersArr.map((_, i) => {
-        return row.risks?.[i] ?? row.risk ?? undefined;
+        if (Array.isArray(row.risks) && row.risks[i]) return row.risks[i];
+        if (row.risk) return row.risk;
+        return "red"; // fallback
       });
-
-
-      if (Array.isArray(row.answers)) {
-        for (let i = 0; i < row.answers.length; i++) {
-          // if risk exists at index → selected
-          if (row.risks && row.risks[i]) {
-            risksArr.push(row.risks[i]);
-          } else {
-            // unselected → RED
-            risksArr.push("red");
-          }
-        }
-      } else {
-        risksArr.push(row.risk ?? "red");
-      }
-
-
 
       const hQ = doc.heightOfString(row.question || "-", {
         width: COL_Q - rowPad * 2,
       });
       const ansHeights = answersArr.map((a) =>
-        Math.max(
-          doc.heightOfString(a || "-", { width: COL_A - rowPad * 2 }),
-          12
-        )
+        Math.max(doc.heightOfString(a || "-", { width: COL_A - rowPad * 2 }), 12)
       );
       const answersBlockH =
-        ansHeights.reduce((s, h) => s + h, 0) +
-        Math.max(answersArr.length - 1, 0) * 4;
+        ansHeights.reduce((s, h) => s + h, 0) + Math.max(answersArr.length - 1, 0) * 4;
       const rowH = Math.max(hQ, answersBlockH, 16) + rowPad * 2;
 
       ensureSpace(rowH + 6);
@@ -512,7 +492,8 @@ router.post("/report.pdf", async (req, res) => {
         const h = ansHeights[i];
         const isSelected = row.selected?.[i] === true;
 
-        if (isSelected) {
+        // ✅ Highlight selected checkboxes only
+        if (isSelected && row.answers && row.answers.length > 1) {
           doc
             .save()
             .rect(x + COL_Q + 2, ay - 2, COL_A - 4, h + 4)
@@ -520,12 +501,9 @@ router.post("/report.pdf", async (req, res) => {
             .restore();
         }
 
-
         doc.text(a, x + COL_Q + rowPad, ay, { width: COL_A - rowPad * 2 });
 
-        // const chosenRisk = risksArr[i] ?? risksArr[0];
-        const chosenRisk: RiskT = risksArr[i] ?? risksArr[0] ?? "red";
-
+        const chosenRisk: RiskT = risksArr[i] ?? "red";
         const col = riskColor(chosenRisk);
         const barW = 24,
           barH = 9;
@@ -569,17 +547,24 @@ router.post("/report.pdf", async (req, res) => {
     //   doc.moveDown(0.5);
     // });
 
-    sections.forEach((sec, idx) => {
-      let title = sec.title || `Segment ${idx + 1}`;
+    // Merge sections with the same title
+    const mergedSections: typeof sections = [];
+    sections.forEach((sec) => {
+      if (
+        mergedSections.length > 0 &&
+        mergedSections[mergedSections.length - 1].title === sec.title
+      ) {
+        // append rows to last merged section
+        mergedSections[mergedSections.length - 1].rows.push(...sec.rows);
+      } else {
+        mergedSections.push({ ...sec, rows: [...sec.rows] });
+      }
+    });
 
-      // Remove "Segment X:" prefix if exists
-      title = title.replace(/^Segment\s*\d+\s*:\s*/i, "");
-      // 🔒 Ensure title + table start stay together
-      const minHeight = estimateSegmentMinHeight(
-        title,
-        sec.rows?.[0]
-      );
+    mergedSections.forEach((sec) => {
+      const title = sec.title || "Segment";
 
+      const minHeight = estimateSegmentMinHeight(title, sec.rows?.[0]);
       ensureSpace(minHeight);
 
       // ---- Segment title ----
@@ -607,6 +592,42 @@ router.post("/report.pdf", async (req, res) => {
 
       doc.moveDown(0.5);
     });
+
+    // sections.forEach((sec, idx) => {
+    //   const title = sec.title || `Segment ${idx + 1}`;
+
+    //   const minHeight = estimateSegmentMinHeight(
+    //     title,
+    //     sec.rows?.[0]
+    //   );
+
+    //   ensureSpace(minHeight);
+
+    //   // ---- Segment title ----
+    //   doc.font("Helvetica-Bold").fontSize(11).fillColor("#111");
+    //   doc.text(title, page().m, doc.y, { align: "left" });
+    //   doc.moveDown(0.4);
+
+    //   const tableTop = doc.y;
+
+    //   // ---- Table header ----
+    //   drawTableHeader();
+
+    //   // ---- Rows ----
+    //   (sec.rows || []).forEach((r) => drawRow(r as any));
+
+    //   // ---- Outer table box ----
+    //   const tableBottom = doc.y;
+    //   const x = page().m;
+    //   const tableHeight = tableBottom - tableTop;
+
+    //   doc.save();
+    //   doc.lineWidth(1.5).strokeColor(BORDER);
+    //   doc.rect(x, tableTop, TOTAL_W, tableHeight).stroke();
+    //   doc.restore();
+
+    //   doc.moveDown(0.5);
+    // });
 
 
     doc.end();
