@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 import mongoose from "mongoose";
 import Survey from "../models/Survey";
@@ -114,53 +113,6 @@ router.get("/surveys/:key", async (req, res, next) => {
   }
 });
 
-//helperfunctions
-type RiskT = "green" | "yellow" | "red" | undefined;
-
-/**
- * Normalize checkbox rows:
- * - answers[] length === risks[] length
- * - missing risks → RED (unselected checkbox)
- */
-const normalizeSectionsForCheckbox = (
-  sections: {
-    title: string;
-    rows: {
-      question: string;
-      answer?: string;
-      answers?: string[];
-      risk?: RiskT;
-      risks?: RiskT[];
-    }[];
-  }[]
-) => {
-  return sections.map((sec) => ({
-    ...sec,
-    rows: sec.rows.map((row) => {
-      // ✅ Only checkbox-style rows
-      if (Array.isArray(row.answers)) {
-        const answers = row.answers;
-        const risks: RiskT[] = Array.isArray(row.risks)
-          ? [...row.risks]
-          : [];
-
-        // 🔴 Fill missing risks with RED
-        while (risks.length < answers.length) {
-          risks.push("red");
-        }
-
-        return {
-          ...row,
-          answers,
-          risks,
-        };
-      }
-
-      return row;
-    }),
-  }));
-};
-
 /**
  * POST /api/public/surveys/:key/submit
  */
@@ -254,16 +206,11 @@ router.post("/report.pdf", async (req, res) => {
           question: string;
           answer?: string;
           answers?: string[];
-          risk?: RiskT;
-          risks?: RiskT[];
+          risk?: "green" | "yellow" | "red";
+          risks?: ("green" | "yellow" | "red" | undefined)[];
         }[];
       }[];
     };
-
-    // ✅ Normalize checkbox answers
-    const normalizedSections = normalizeSectionsForCheckbox(sections);
-
-
 
     const doc = new PDFDocument({
       size: "A4",
@@ -403,7 +350,7 @@ router.post("/report.pdf", async (req, res) => {
       doc.y = y + 22;
     };
 
-    // type RiskT = "green" | "yellow" | "red" | undefined;
+    type RiskT = "green" | "yellow" | "red" | undefined;
 
     const estimateSegmentMinHeight = (
       title: string,
@@ -463,23 +410,12 @@ router.post("/report.pdf", async (req, res) => {
           ? row.answers
           : [row.answer ?? "-"];
 
-      const risksArr: RiskT[] = [];
-
-      if (Array.isArray(row.answers)) {
-        for (let i = 0; i < row.answers.length; i++) {
-          // if risk exists at index → selected
-          if (row.risks && row.risks[i]) {
-            risksArr.push(row.risks[i]);
-          } else {
-            // unselected → RED
-            risksArr.push("red");
-          }
-        }
-      } else {
-        risksArr.push(row.risk ?? "red");
-      }
-
-
+      const risksArr: RiskT[] =
+        Array.isArray(row.risks) && row.risks.length
+          ? row.risks
+          : row.risk !== undefined
+            ? [row.risk]
+            : [];
 
       const hQ = doc.heightOfString(row.question || "-", {
         width: COL_Q - rowPad * 2,
@@ -520,9 +456,7 @@ router.post("/report.pdf", async (req, res) => {
 
         doc.text(a, x + COL_Q + rowPad, ay, { width: COL_A - rowPad * 2 });
 
-        // const chosenRisk = risksArr[i] ?? risksArr[0];
-        const chosenRisk: RiskT = risksArr[i] ?? risksArr[0] ?? "red";
-
+        const chosenRisk = risksArr[i] ?? risksArr[0];
         const col = riskColor(chosenRisk);
         const barW = 24,
           barH = 9;
