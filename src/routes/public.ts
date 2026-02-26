@@ -212,7 +212,7 @@ router.post("/report.pdf", async (req, res) => {
 
     const doc = new PDFDocument({
       size: "A4",
-      margins: { top: 32, left: 40, right: 40, bottom: 80 },
+      margins: { top: 22, left: 40, right: 40, bottom: 80 },
     });
 
     res.setHeader("Content-Type", "application/pdf");
@@ -228,10 +228,9 @@ router.post("/report.pdf", async (req, res) => {
     /* ---------- TIGHT HEADER (Survey Name only) ---------- */
     /* ---------- IMPROVED HEADER (Company Logo + Survey Name) ---------- */
     const drawHeader = () => {
-      const p = page();
-      const topY = 18;
+      const pageWidth = doc.page.width;
+      const margins = doc.page.margins;
 
-      // Handle logo array properly
       const logoUrls = Array.isArray(companyLogo)
         ? companyLogo
         : companyLogo
@@ -240,17 +239,20 @@ router.post("/report.pdf", async (req, res) => {
 
       const logoWidth = 80;
       const logoHeight = 40;
-      const logoSpacing = 20;
+      const logoSpacing = 30;
 
-      let currentY = topY;
+      const spacing = 15; // tighter clean spacing
 
-      // ===== DRAW LOGOS CENTERED =====
+      // ✅ Start EXACTLY at top margin
+      let currentY = margins.top;
+
+      // ===== LOGO =====
       if (logoUrls.length > 0) {
         const totalWidth =
           logoUrls.length * logoWidth +
           (logoUrls.length - 1) * logoSpacing;
 
-        let x = (p.w - totalWidth) / 2;
+        let x = (pageWidth - totalWidth) / 2;
 
         logoUrls.forEach((logo) => {
           try {
@@ -264,39 +266,87 @@ router.post("/report.pdf", async (req, res) => {
           x += logoWidth + logoSpacing;
         });
 
-        currentY += logoHeight + 15; // move below logos
+        currentY += logoHeight + spacing;
       }
 
-      // // ===== COMPANY NAME (centered) =====
-      // if (companyName) {
-      //   doc
-      //     .font("Helvetica-Bold")
-      //     .fontSize(14)
-      //     .fillColor("#111")
-      //     .text(companyName, p.m, currentY, {
-      //       width: p.w - p.m * 2,
-      //       align: "center",
-      //     });
-
-      //   currentY += 20;
-      // }
-
-      // ===== SURVEY NAME (centered & bigger) =====
+      // ===== SURVEY NAME =====
       if (surveyName) {
         doc
           .font("Helvetica-Bold")
           .fontSize(14)
           .fillColor("#111")
-          .text(surveyName, p.m, currentY, {
-            width: p.w - p.m * 2,
+          .text(surveyName, margins.left, currentY, {
+            width: pageWidth - margins.left - margins.right,
             align: "left",
           });
 
-        currentY += 25;
+        const textHeight = doc.heightOfString(surveyName, {
+          width: pageWidth - margins.left - margins.right,
+        });
+
+        currentY += textHeight + spacing;
       }
 
+      // ✅ Move cursor correctly after header
       doc.y = currentY;
     };
+    // const drawHeader = () => {
+    //   const p = page();
+    //   const topY = 18;
+
+    //   // Handle logo array properly
+    //   const logoUrls = Array.isArray(companyLogo)
+    //     ? companyLogo
+    //     : companyLogo
+    //       ? [companyLogo]
+    //       : [];
+
+    //   const logoWidth = 80;
+    //   const logoHeight = 40;
+    //   const logoSpacing = 80;
+
+    //   let currentY = topY;
+
+    //   // ===== DRAW LOGOS CENTERED =====
+    //   if (logoUrls.length > 0) {
+    //     const totalWidth =
+    //       logoUrls.length * logoWidth +
+    //       (logoUrls.length - 1) * logoSpacing;
+
+    //     let x = (p.w - totalWidth) / 2;
+
+    //     logoUrls.forEach((logo) => {
+    //       try {
+    //         doc.image(logo, x, currentY, {
+    //           fit: [logoWidth, logoHeight],
+    //         });
+    //       } catch (err) {
+    //         console.warn("Logo load failed:", logo);
+    //       }
+
+    //       x += logoWidth + logoSpacing;
+    //     });
+
+    //     currentY += logoHeight + 15; // move below logos
+    //   }
+
+
+    //   // ===== SURVEY NAME (centered & bigger) =====
+    //   if (surveyName) {
+    //     doc
+    //       .font("Helvetica-Bold")
+    //       .fontSize(14)
+    //       .fillColor("#111")
+    //       .text(surveyName, p.m, currentY, {
+    //         width: p.w - p.m * 2,
+    //         align: "left",
+    //       });
+
+
+    //   }
+
+    //   doc.y = currentY;
+    // };
 
     drawHeader();
     doc.on("pageAdded", drawHeader);
