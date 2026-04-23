@@ -11,6 +11,11 @@ const ChoiceSchema = new Schema(
 const ResponseSchema = new Schema(
   {
     surveyId: { type: Schema.Types.ObjectId, ref: "Survey", required: true },
+
+    // 🆕 NEW FIELDS
+    name: { type: String, default: "Anonymous" },
+    company: { type: String, index: true }, // indexing for fast filtering
+
     choices: { type: [ChoiceSchema], default: [] },
   },
   { timestamps: true }

@@ -1,3 +1,4 @@
+
 import { Router } from "express";
 import mongoose from "mongoose";
 import Survey from "../models/Survey";
@@ -9,6 +10,7 @@ import Option from "../models/Option";
 import PDFDocument from "pdfkit";
 import path from "path";
 import fs from "fs";
+
 const router = Router();
 
 /* ---------- helpers ---------- */
@@ -20,6 +22,15 @@ const parseSegmentNumber = (q: any): number => {
     if (m) return parseInt(m[0], 10);
   }
   return 1;
+};
+
+const extractCompanyFromEmail = (email) => {
+  if (!email) return "Unknown";
+
+  const domain = email.split("@")[1] || "";
+  const company = domain.split(".")[0] || "Unknown";
+
+  return company.charAt(0).toUpperCase() + company.slice(1);
 };
 
 /**
@@ -112,6 +123,41 @@ router.get("/surveys/:key", async (req, res, next) => {
   }
 });
 
+//helperfunctions
+type RiskT = "green" | "yellow" | "red" | undefined;
+
+/**
+ * Normalize checkbox rows:
+ * - answers[] length === risks[] length
+ * - missing risks → RED (unselected checkbox)
+ */
+const normalizeSectionsForCheckbox = (sections: any[]) => {
+  return sections.map((sec) => ({
+    ...sec,
+    rows: sec.rows.map((row: any) => {
+      if (Array.isArray(row.answers)) {
+        const answers = row.answers;
+        const existingRisks: RiskT[] = Array.isArray(row.risks)
+          ? [...row.risks]
+          : [];
+
+        const normalizedRisks: RiskT[] = answers.map((_, index) => {
+          return existingRisks[index] ?? undefined;
+        });
+
+        return {
+          ...row,
+          answers,
+          risks: normalizedRisks,
+        };
+      }
+
+      return row;
+    }),
+  }));
+};
+
+
 /**
  * POST /api/public/surveys/:key/submit
  */
@@ -125,8 +171,10 @@ router.post("/surveys/:key/submit", async (req, res, next) => {
     const survey = byId ?? (await Survey.findOne({ publicToken: key }).lean());
     if (!survey) return res.status(404).json({ error: "Survey not found" });
 
-    const { answers } = req.body as {
+    const { answers, name, email } = req.body as {
       answers: Record<string, string | string[]>;
+       name: string;
+  email: string;
     };
     if (!answers || typeof answers !== "object")
       return res.status(400).json({ error: "Invalid payload" });
@@ -177,7 +225,15 @@ router.post("/surveys/:key/submit", async (req, res, next) => {
     });
 
     const Response = (await import("../models/Response")).default;
-    await Response.create({ surveyId: survey._id, choices: finalChoices });
+    const company = extractCompanyFromEmail(email);
+
+await Response.create({
+  surveyId: survey._id,
+  choices: finalChoices,
+  name: name || "Anonymous",
+  company,
+  createdAt: new Date(),
+});
     await Survey.updateOne({ _id: survey._id }, { $inc: { totalCount: 1 } });
 
     res.json({ ok: true });
@@ -186,51 +242,170 @@ router.post("/surveys/:key/submit", async (req, res, next) => {
   }
 });
 
+
+/**
+ * GET /api/audits/summary
+ */
+router.get("/audits/summary", async (req, res) => {
+  console.log("AUDIT ROUTES LOADED");
+  try {
+    const Response = (await import("../models/Response")).default;
+
+    const totalAudits = await Response.countDocuments();
+
+    const companyStats = await Response.aggregate([
+      {
+        $group: {
+          _id: "$company",
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          company: "$_id",
+          count: 1,
+          _id: 0,
+        },
+      },
+    ]);
+
+    const totalCompanies = companyStats.length;
+
+    res.json({
+      totalAudits,
+      totalCompanies,
+      companyStats,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch summary" });
+  }
+});
+
+/**
+ * GET /api/companies
+ */
+router.get("/companies", async (req, res) => {
+  try {
+    const Response = (await import("../models/Response")).default;
+
+    const companies = await Response.distinct("company");
+
+    res.json(companies);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch companies" });
+  }
+});
+
+/**
+ * GET /api/audits
+ * Query:
+ *  - company=Microsoft
+ *  - surveyId=xyz
+ */
+router.get("/audits", async (req, res) => {
+  try {
+    const { company, surveyId } = req.query;
+
+    const Response = (await import("../models/Response")).default;
+
+    const filter: any = {};
+
+    if (company) {
+      filter.company = company;
+    }
+
+    if (surveyId) {
+      filter.surveyId = surveyId;
+    }
+
+    const audits = await Response.find(filter)
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json(audits);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch audits" });
+  }
+});
+
 /**
  * POST /api/public/report.pdf
+ 
  */
 router.post("/report.pdf", async (req, res) => {
   try {
     const {
-      surveyName = "",
       companyName = "",
       companyLogo = "",
       sections = [],
     } = req.body as {
-      surveyName?: string;
       companyName?: string;
       companyLogo?: string;
       sections: {
         title: string;
         rows: {
           question: string;
+          answer?: string;
           answers?: string[];
-          risks?: ("green" | "yellow" | "red" | undefined)[];
+          risk?: RiskT;
+          risks?: RiskT[];
         }[];
       }[];
     };
+//     if (qq.type === "checkbox") {
+//   const selectedIds = currentArr(qq.id);
+
+//   qq.options.forEach((opt) => {
+//     const isSelected = selectedIds.includes(opt.id);
+
+//     answersArr.push(opt.text);
+//     selectedArr.push(isSelected);
+
+//     if (isSelected) {
+//       const r = (opt.risk || "").toLowerCase();
+//       risksArr.push(
+//         r === "green"
+//           ? "green"
+//           : r === "yellow" || r === "amber"
+//           ? "yellow"
+//           : "red"
+//       );
+//     } else {
+//       risksArr.push("red");
+//     }
+//   });
+// }
+
+
+    // ✅ Normalize checkbox answers
+    const normalizedSections = normalizeSectionsForCheckbox(sections);
+
+
 
     const doc = new PDFDocument({
       size: "A4",
-      margins: { top: 22, left: 40, right: 40, bottom: 80 },
+      margins: { top: 32, left: 32, right: 32, bottom: 64 },
     });
-
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="report.pdf"`);
     doc.pipe(res);
 
     const page = () => ({
       w: doc.page.width,
+      h: doc.page.height,
       m: doc.page.margins.left,
+      mb: doc.page.margins.bottom,
       usableBottom: doc.page.height - doc.page.margins.bottom,
     });
 
-    /* ---------- TIGHT HEADER (Survey Name only) ---------- */
-    /* ---------- IMPROVED HEADER (Company Logo + Survey Name) ---------- */
+    // Header with company name + logo
     const drawHeader = () => {
-      const pageWidth = doc.page.width;
-      const margins = doc.page.margins;
+      const p = page();
+      const startX = p.m;
+      const startY = 18; // top margin Y
 
+      // Company Logo - centered
+      // Handle multiple logos (either string or array)
       const logoUrls = Array.isArray(companyLogo)
         ? companyLogo
         : companyLogo
@@ -238,142 +413,82 @@ router.post("/report.pdf", async (req, res) => {
           : [];
 
       const logoWidth = 80;
-      const logoHeight = 40;
-      const logoSpacing = 30;
+      const logoHeight = 80;
+      const logoSpacing = 20;
 
-      const spacing = 15; // tighter clean spacing
-
-      // ✅ Start EXACTLY at top margin
-      let currentY = margins.top;
-
-      // ===== LOGO =====
       if (logoUrls.length > 0) {
+        // Total width of all logos + spacing
         const totalWidth =
-          logoUrls.length * logoWidth +
-          (logoUrls.length - 1) * logoSpacing;
-
-        let x = (pageWidth - totalWidth) / 2;
+          logoUrls.length * logoWidth + (logoUrls.length - 1) * logoSpacing;
+        // Center horizontally
+        let startX = (p.w - totalWidth) / 2;
+        const startY = 18;
 
         logoUrls.forEach((logo) => {
           try {
-            doc.image(logo, x, currentY, {
+            doc.image(logo, startX, startY, {
               fit: [logoWidth, logoHeight],
+              align: "center",
+              valign: "center",
             });
           } catch (err) {
-            console.warn("Logo load failed:", logo);
+            if (err instanceof Error) {
+              console.warn("Failed to load logo:", logo, err.message);
+            } else {
+              console.warn("Failed to load logo:", logo, err);
+            }
           }
-
-          x += logoWidth + logoSpacing;
+          startX += logoWidth + logoSpacing;
         });
-
-        currentY += logoHeight + spacing;
       }
 
-      // ===== SURVEY NAME =====
-      if (surveyName) {
-        doc
-          .font("Helvetica-Bold")
-          .fontSize(14)
-          .fillColor("#111")
-          .text(surveyName, margins.left, currentY, {
-            width: pageWidth - margins.left - margins.right,
-            align: "left",
-          });
+      // Move Y position below the logo
+      const afterLogoY = startY + logoHeight + 10;
 
-        const textHeight = doc.heightOfString(surveyName, {
-          width: pageWidth - margins.left - margins.right,
+      // Company Name - centered below logo
+      if (companyName) {
+        doc.font("Helvetica-Bold").fontSize(14).fillColor("#111");
+        doc.text(companyName, startX, startY + logoHeight + 10, {
+          align: "left",
         });
-
-        currentY += textHeight + spacing;
       }
 
-      // ✅ Move cursor correctly after header
-      doc.y = currentY;
+      // Move doc.y for rest of content
+      doc.moveDown(2);
     };
-    // const drawHeader = () => {
-    //   const p = page();
-    //   const topY = 18;
-
-    //   // Handle logo array properly
-    //   const logoUrls = Array.isArray(companyLogo)
-    //     ? companyLogo
-    //     : companyLogo
-    //       ? [companyLogo]
-    //       : [];
-
-    //   const logoWidth = 80;
-    //   const logoHeight = 40;
-    //   const logoSpacing = 80;
-
-    //   let currentY = topY;
-
-    //   // ===== DRAW LOGOS CENTERED =====
-    //   if (logoUrls.length > 0) {
-    //     const totalWidth =
-    //       logoUrls.length * logoWidth +
-    //       (logoUrls.length - 1) * logoSpacing;
-
-    //     let x = (p.w - totalWidth) / 2;
-
-    //     logoUrls.forEach((logo) => {
-    //       try {
-    //         doc.image(logo, x, currentY, {
-    //           fit: [logoWidth, logoHeight],
-    //         });
-    //       } catch (err) {
-    //         console.warn("Logo load failed:", logo);
-    //       }
-
-    //       x += logoWidth + logoSpacing;
-    //     });
-
-    //     currentY += logoHeight + 15; // move below logos
-    //   }
-
-
-    //   // ===== SURVEY NAME (centered & bigger) =====
-    //   if (surveyName) {
-    //     doc
-    //       .font("Helvetica-Bold")
-    //       .fontSize(14)
-    //       .fillColor("#111")
-    //       .text(surveyName, p.m, currentY, {
-    //         width: p.w - p.m * 2,
-    //         align: "left",
-    //       });
-
-
-    //   }
-
-    //   doc.y = currentY;
-    // };
 
     drawHeader();
-    doc.on("pageAdded", drawHeader);
+    doc.on("pageAdded", () => {
+      drawHeader();
+    });
 
-    /* ---------- TABLE SETTINGS ---------- */
+    // Table and row settings
     const BORDER = "#2f4250";
-    const HEADER_FILL = "#e8e8e8";
-    const LINE_WIDTH = 1.2;
+    const HEADER_FILL = "#d2d2d2";
+    const LINE_WIDTH = 1.0;
 
-    const COL_Q = 295;
-    const COL_A = 175;
-    const COL_R = 80;
+    const COL_Q = 290; // question
+    const COL_A = 180; // answer
+    const COL_R = 80; // risk
     const TOTAL_W = COL_Q + COL_A + COL_R;
-    const rowPad = 8;
+    const rowPad = 6;
 
     const ensureSpace = (needed: number) => {
       const p = page();
-      if (doc.y + needed + 90 > p.usableBottom) doc.addPage();
+      if (doc.y + needed + 56 > p.usableBottom) doc.addPage();
     };
 
     const riskColor = (r?: string) => {
       switch ((r || "").toLowerCase()) {
-        case "red": return "#d93025";
+        case "red":
+          return "#d93025";
         case "yellow":
-        case "amber": return "#f7b500";
-        case "green": return "#2fb45a";
-        default: return "#9aa0a6";
+        case "amber":
+          return "#f7b500";
+        case "green":
+          return "#2fb45a";
+        default:
+          return "#9aa0a6";
       }
     };
 
@@ -383,92 +498,250 @@ router.post("/report.pdf", async (req, res) => {
 
       doc.save();
       doc.lineWidth(LINE_WIDTH).strokeColor(BORDER).fillColor(HEADER_FILL);
-      doc.rect(x, y, TOTAL_W, 26).fillAndStroke();
-      doc.moveTo(x + COL_Q, y).lineTo(x + COL_Q, y + 26).stroke();
-      doc.moveTo(x + COL_Q + COL_A, y).lineTo(x + COL_Q + COL_A, y + 26).stroke();
+      doc.rect(x, y, TOTAL_W, 22).fillAndStroke();
 
-      doc.fillColor("#111").font("Helvetica-Bold").fontSize(11);
-      doc.text("Question", x + 8, y + 7, { width: COL_Q - 16 });
-      doc.text("Answer", x + COL_Q + 8, y + 7, { width: COL_A - 16 });
-      doc.text("Risk", x + COL_Q + COL_A + 8, y + 7, { width: COL_R - 16 });
+      doc
+        .moveTo(x + COL_Q, y)
+        .lineTo(x + COL_Q, y + 22)
+        .stroke();
+      doc
+        .moveTo(x + COL_Q + COL_A, y)
+        .lineTo(x + COL_Q + COL_A, y + 22)
+        .stroke();
 
+      doc.fillColor("#111").font("Helvetica-Bold").fontSize(10.5);
+      doc.text("Question", x + 6, y + 5, { width: COL_Q - 12 });
+      doc.text("Answer", x + COL_Q + 6, y + 5, { width: COL_A - 12 });
+      doc.text("Risk Level", x + COL_Q + COL_A + 6, y + 5, {
+        width: COL_R - 12,
+      });
       doc.restore();
-      doc.y = y + 26;
+
+      doc.y = y + 22;
     };
 
-    const drawRow = (row: any) => {
+    // type RiskT = "green" | "yellow" | "red" | undefined;
+
+    const estimateSegmentMinHeight = (
+      title: string,
+      firstRow?: {
+        question: string;
+        answer?: string;
+        answers?: string[];
+      }
+    ) => {
+      let h = 0;
+
+      // Segment title height
+      h += doc.heightOfString(title, {
+        width: TOTAL_W,
+      }) + 8;
+
+      // Table header height
+      h += 22;
+
+      // At least one row height (estimate)
+      if (firstRow) {
+        const qH = doc.heightOfString(firstRow.question || "-", {
+          width: COL_Q - rowPad * 2,
+        });
+
+        const a =
+          Array.isArray(firstRow.answers) && firstRow.answers.length
+            ? firstRow.answers[0]
+            : firstRow.answer ?? "-";
+
+        const aH = doc.heightOfString(a, {
+          width: COL_A - rowPad * 2,
+        });
+
+        const rowH = Math.max(qH, aH, 16) + rowPad * 2;
+        h += rowH;
+      } else {
+        // fallback minimal row height
+        h += 28;
+      }
+
+      return h + 12; // buffer
+    };
+
+
+    const drawRow = (row: {
+      question: string;
+      answer?: string;
+      answers?: string[];
+      allOptions?: string[];
+      risk?: RiskT;
+      selected?: boolean[];
+      risks?: RiskT[];
+    }) => {
       const x = page().m;
 
-      const answersArr = Array.isArray(row.answers)
-        ? row.answers.filter(Boolean)
-        : ["—"];
+      const answersArr: string[] = Array.isArray(row.answers)
+        ? row.answers
+        : row.allOptions ?? (row.answer ? [row.answer] : []);
 
-      const risksArr = Array.isArray(row.risks)
-        ? row.risks
-        : ["red"];
 
-      const hQ = doc.heightOfString(row.question || "—", { width: COL_Q - rowPad * 2 });
+      const risksArr: RiskT[] = answersArr.map((_, i) => {
+        return row.risks?.[i] ?? row.risk ?? undefined;
+      });
+
+
+      if (Array.isArray(row.answers)) {
+        for (let i = 0; i < row.answers.length; i++) {
+          // if risk exists at index → selected
+          if (row.risks && row.risks[i]) {
+            risksArr.push(row.risks[i]);
+          } else {
+            // unselected → RED
+            risksArr.push("red");
+          }
+        }
+      } else {
+        risksArr.push(row.risk ?? "red");
+      }
+
+
+
+      const hQ = doc.heightOfString(row.question || "-", {
+        width: COL_Q - rowPad * 2,
+      });
       const ansHeights = answersArr.map((a) =>
-        Math.max(doc.heightOfString(a || "—", { width: COL_A - rowPad * 2 }), 14)
+        Math.max(
+          doc.heightOfString(a || "-", { width: COL_A - rowPad * 2 }),
+          12
+        )
       );
-      const answersH = ansHeights.reduce((sum, h) => sum + h, 0) + Math.max(answersArr.length - 1, 0) * 6;
-      const rowH = Math.max(hQ, answersH, 20) + rowPad * 2;
+      const answersBlockH =
+        ansHeights.reduce((s, h) => s + h, 0) +
+        Math.max(answersArr.length - 1, 0) * 4;
+      const rowH = Math.max(hQ, answersBlockH, 16) + rowPad * 2;
 
-      ensureSpace(rowH + 10);
+      ensureSpace(rowH + 6);
 
       const yStart = doc.y;
 
+      // cell borders
       doc.save().lineWidth(LINE_WIDTH).strokeColor(BORDER);
       doc.rect(x, yStart, COL_Q, rowH).stroke();
       doc.rect(x + COL_Q, yStart, COL_A, rowH).stroke();
       doc.rect(x + COL_Q + COL_A, yStart, COL_R, rowH).stroke();
       doc.restore();
 
+      // Question text
       doc.font("Helvetica").fontSize(10).fillColor("#111");
-      doc.text(row.question || "—", x + rowPad, yStart + rowPad, {
+      doc.text(row.question || "-", x + rowPad, yStart + rowPad, {
         width: COL_Q - rowPad * 2,
       });
 
+      // Answers + risk bars
       let ay = yStart + rowPad;
       for (let i = 0; i < answersArr.length; i++) {
-        const a = answersArr[i];
+        const a = answersArr[i] ?? "-";
         const h = ansHeights[i];
-        const col = riskColor(risksArr[i]);
+        const isSelected = row.selected?.[i] === true;
+
+        if (isSelected) {
+          doc
+            .save()
+            .rect(x + COL_Q + 2, ay - 2, COL_A - 4, h + 4)
+            .fill("#8ab6f8")
+            .restore();
+        }
+
 
         doc.text(a, x + COL_Q + rowPad, ay, { width: COL_A - rowPad * 2 });
 
-        const barW = 26, barH = 10;
+        // const chosenRisk = risksArr[i] ?? risksArr[0];
+        const chosenRisk: RiskT = risksArr[i] ?? risksArr[0] ?? "red";
+
+        const col = riskColor(chosenRisk);
+        const barW = 24,
+          barH = 9;
         const ry = ay + (h - barH) / 2;
         const rx = x + COL_Q + COL_A + (COL_R - barW) / 2;
         doc.save().rect(rx, ry, barW, barH).fill(col).restore();
 
-        ay += h + 6;
+        ay += h + 4;
       }
 
       doc.y = yStart + rowH;
     };
 
-    /* ---------- DRAW SEGMENTS ---------- */
-    sections.forEach((sec) => {
-      const title = sec.title || "Segment";
+    // Draw content
+    // sections.forEach((sec, idx) => {
+    //   const title = sec.title || `Segment ${idx + 1}`;
+    //   doc.font("Helvetica-Bold").fontSize(11).fillColor("#111");
+    //   doc.text(title, page().m, doc.y, { align: "left" });
+    //   doc.moveDown(0.4);
 
-      ensureSpace(80);
+    //   const tableTop = doc.y;
 
-      doc.font("Helvetica-Bold").fontSize(13).fillColor("#1c2526");
-      doc.text(title, page().m, doc.y);
-      doc.moveDown(0.5);
+    //   drawTableHeader();
 
+    //   // draw rows
+    //   (sec.rows || []).forEach((r) => drawRow(r as any));
+
+    //   // EXACT bottom of last row
+    //   const tableBottom = doc.y;
+
+    //   // Draw outer box ONLY around actual table
+    //   const x = page().m;
+    //   const tableHeight = tableBottom - tableTop;
+
+    //   doc.save();
+    //   doc.lineWidth(1.5).strokeColor(BORDER);
+    //   doc.rect(x, tableTop, TOTAL_W, tableHeight).stroke();
+    //   doc.restore();
+
+    //   // spacing AFTER box
+    //   doc.moveDown(0.5);
+    // });
+
+    sections.forEach((sec, idx) => {
+      let title = sec.title || `Segment ${idx + 1}`;
+
+      // Remove "Segment X:" prefix if exists
+      title = title.replace(/^Segment\s*\d+\s*:\s*/i, "");
+      // 🔒 Ensure title + table start stay together
+      const minHeight = estimateSegmentMinHeight(
+        title,
+        sec.rows?.[0]
+      );
+
+      ensureSpace(minHeight);
+
+      // ---- Segment title ----
+      doc.font("Helvetica-Bold").fontSize(11).fillColor("#111");
+      doc.text(title, page().m, doc.y, { align: "left" });
+      doc.moveDown(0.4);
+
+      const tableTop = doc.y;
+
+      // ---- Table header ----
       drawTableHeader();
 
-      (sec.rows || []).forEach((r) => drawRow(r));
+      // ---- Rows ----
+      (sec.rows || []).forEach((r) => drawRow(r as any));
 
-      doc.moveDown(0.8);
+      // ---- Outer table box ----
+      const tableBottom = doc.y;
+      const x = page().m;
+      const tableHeight = tableBottom - tableTop;
+
+      doc.save();
+      doc.lineWidth(1.5).strokeColor(BORDER);
+      doc.rect(x, tableTop, TOTAL_W, tableHeight).stroke();
+      doc.restore();
+
+      doc.moveDown(0.5);
     });
+
 
     doc.end();
   } catch (err) {
-    console.error("PDF Error:", err);
-    res.status(500).json({ error: "Failed to generate PDF" });
+    console.error(err);
+    res.status(500).json({ error: "Failed to build PDF" });
   }
 });
 
