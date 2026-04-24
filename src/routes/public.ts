@@ -173,8 +173,8 @@ router.post("/surveys/:key/submit", async (req, res, next) => {
 
     const { answers, name, email } = req.body as {
       answers: Record<string, string | string[]>;
-       name: string;
-  email: string;
+      name: string;
+      email: string;
     };
     if (!answers || typeof answers !== "object")
       return res.status(400).json({ error: "Invalid payload" });
@@ -227,13 +227,13 @@ router.post("/surveys/:key/submit", async (req, res, next) => {
     const Response = (await import("../models/Response")).default;
     const company = extractCompanyFromEmail(email);
 
-await Response.create({
-  surveyId: survey._id,
-  choices: finalChoices,
-  name: name || "Anonymous",
-  company,
-  createdAt: new Date(),
-});
+    await Response.create({
+      surveyId: survey._id,
+      choices: finalChoices,
+      name: name || "Anonymous",
+      company,
+      createdAt: new Date(),
+    });
     await Survey.updateOne({ _id: survey._id }, { $inc: { totalCount: 1 } });
 
     res.json({ ok: true });
@@ -352,29 +352,29 @@ router.post("/report.pdf", async (req, res) => {
         }[];
       }[];
     };
-//     if (qq.type === "checkbox") {
-//   const selectedIds = currentArr(qq.id);
+    //     if (qq.type === "checkbox") {
+    //   const selectedIds = currentArr(qq.id);
 
-//   qq.options.forEach((opt) => {
-//     const isSelected = selectedIds.includes(opt.id);
+    //   qq.options.forEach((opt) => {
+    //     const isSelected = selectedIds.includes(opt.id);
 
-//     answersArr.push(opt.text);
-//     selectedArr.push(isSelected);
+    //     answersArr.push(opt.text);
+    //     selectedArr.push(isSelected);
 
-//     if (isSelected) {
-//       const r = (opt.risk || "").toLowerCase();
-//       risksArr.push(
-//         r === "green"
-//           ? "green"
-//           : r === "yellow" || r === "amber"
-//           ? "yellow"
-//           : "red"
-//       );
-//     } else {
-//       risksArr.push("red");
-//     }
-//   });
-// }
+    //     if (isSelected) {
+    //       const r = (opt.risk || "").toLowerCase();
+    //       risksArr.push(
+    //         r === "green"
+    //           ? "green"
+    //           : r === "yellow" || r === "amber"
+    //           ? "yellow"
+    //           : "red"
+    //       );
+    //     } else {
+    //       risksArr.push("red");
+    //     }
+    //   });
+    // }
 
 
     // ✅ Normalize checkbox answers
