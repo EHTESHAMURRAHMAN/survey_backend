@@ -15,11 +15,6 @@ build/
 # TypeScript cache
 *.tsbuildinfo
 
-# Environment variables
-.env.local
-.env.development
-.env.test
-.env.production
 
 # OS files
 .DS_Store
@@ -30,5 +25,3 @@ Thumbs.db
 .idea/
 *.sublime-workspace
 *.sublime-project
-
-# npm package lock files (opti
