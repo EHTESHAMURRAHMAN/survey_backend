@@ -173,8 +173,8 @@ router.post("/surveys/:key/submit", async (req, res, next) => {
 
     const { answers, name, email } = req.body as {
       answers: Record<string, string | string[]>;
-      name: string;
-      email: string;
+       name: string;
+  email: string;
     };
     if (!answers || typeof answers !== "object")
       return res.status(400).json({ error: "Invalid payload" });
@@ -227,13 +227,13 @@ router.post("/surveys/:key/submit", async (req, res, next) => {
     const Response = (await import("../models/Response")).default;
     const company = extractCompanyFromEmail(email);
 
-    await Response.create({
-      surveyId: survey._id,
-      choices: finalChoices,
-      name: name || "Anonymous",
-      company,
-      createdAt: new Date(),
-    });
+await Response.create({
+  surveyId: survey._id,
+  choices: finalChoices,
+  name: name || "Anonymous",
+  company,
+  createdAt: new Date(),
+});
     await Survey.updateOne({ _id: survey._id }, { $inc: { totalCount: 1 } });
 
     res.json({ ok: true });
@@ -255,8 +255,14 @@ router.get("/audits/summary", async (req, res) => {
 
     const companyStats = await Response.aggregate([
       {
+        $match: {
+          company: { $exists: true, $ne: null },
+          $expr: { $ne: [{ $trim: { input: "$company" } }, ""] },
+        },
+      },
+      {
         $group: {
-          _id: "$company",
+          _id: { $trim: { input: "$company" } },
           count: { $sum: 1 },
         },
       },
@@ -352,29 +358,29 @@ router.post("/report.pdf", async (req, res) => {
         }[];
       }[];
     };
-    //     if (qq.type === "checkbox") {
-    //   const selectedIds = currentArr(qq.id);
+//     if (qq.type === "checkbox") {
+//   const selectedIds = currentArr(qq.id);
 
-    //   qq.options.forEach((opt) => {
-    //     const isSelected = selectedIds.includes(opt.id);
+//   qq.options.forEach((opt) => {
+//     const isSelected = selectedIds.includes(opt.id);
 
-    //     answersArr.push(opt.text);
-    //     selectedArr.push(isSelected);
+//     answersArr.push(opt.text);
+//     selectedArr.push(isSelected);
 
-    //     if (isSelected) {
-    //       const r = (opt.risk || "").toLowerCase();
-    //       risksArr.push(
-    //         r === "green"
-    //           ? "green"
-    //           : r === "yellow" || r === "amber"
-    //           ? "yellow"
-    //           : "red"
-    //       );
-    //     } else {
-    //       risksArr.push("red");
-    //     }
-    //   });
-    // }
+//     if (isSelected) {
+//       const r = (opt.risk || "").toLowerCase();
+//       risksArr.push(
+//         r === "green"
+//           ? "green"
+//           : r === "yellow" || r === "amber"
+//           ? "yellow"
+//           : "red"
+//       );
+//     } else {
+//       risksArr.push("red");
+//     }
+//   });
+// }
 
 
     // ✅ Normalize checkbox answers
@@ -494,6 +500,7 @@ router.post("/report.pdf", async (req, res) => {
 
     const drawTableHeader = () => {
       const x = page().m;
+      doc.font("Helvetica").fontSize(10);
       const y = doc.y;
 
       doc.save();
@@ -576,6 +583,7 @@ router.post("/report.pdf", async (req, res) => {
       risks?: RiskT[];
     }) => {
       const x = page().m;
+      doc.font("Helvetica").fontSize(10);
 
       const answersArr: string[] = Array.isArray(row.answers)
         ? row.answers
@@ -583,7 +591,7 @@ router.post("/report.pdf", async (req, res) => {
 
 
       const risksArr: RiskT[] = answersArr.map((_, i) => {
-        return row.risks?.[i] ?? row.risk ?? undefined;
+        return row.risks?.[i] ?? row.risk ?? "red";
       });
 
 
@@ -716,23 +724,11 @@ router.post("/report.pdf", async (req, res) => {
       doc.text(title, page().m, doc.y, { align: "left" });
       doc.moveDown(0.4);
 
-      const tableTop = doc.y;
-
       // ---- Table header ----
       drawTableHeader();
 
       // ---- Rows ----
       (sec.rows || []).forEach((r) => drawRow(r as any));
-
-      // ---- Outer table box ----
-      const tableBottom = doc.y;
-      const x = page().m;
-      const tableHeight = tableBottom - tableTop;
-
-      doc.save();
-      doc.lineWidth(1.5).strokeColor(BORDER);
-      doc.rect(x, tableTop, TOTAL_W, tableHeight).stroke();
-      doc.restore();
 
       doc.moveDown(0.5);
     });
